@@ -1,0 +1,49 @@
+name: Build desktop
+
+# A version tag builds OrbitHop.exe with PyInstaller and pushes it to itch.io's
+# windows channel (skipped until the BUTLER_API_KEY secret exists).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+      ITCH_TARGET: ${{ vars.ITCH_USER }}/${{ vars.ITCH_GAME || 'orbit-hop' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller pillow
+
+      - name: Build OrbitHop.exe
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name OrbitHop \
+            --icon favicon.png --add-data "favicon.png;." --add-data "assets;assets" main.py
+          mkdir -p dist/OrbitHop && mv dist/OrbitHop.exe dist/OrbitHop/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrbitHop-windows
+          path: dist/OrbitHop
+
+      - name: Push to itch.io (windows channel)
+        if: env.BUTLER_API_KEY != ''
+        shell: bash
+        run: |
+          curl -sSL -o butler.zip https://broth.itch.zone/butler/windows-amd64/LATEST/archive/default
+          unzip -q butler.zip
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./butler.exe push dist/OrbitHop "$ITCH_TARGET:windows" --userversion "$VERSION"

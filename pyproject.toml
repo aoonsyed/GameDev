@@ -1,0 +1,13 @@
+[project]
+name = "orbit-hop"
+version = "0.1.0"
+description = "One tap. Infinite orbits. A neon one-thumb arcade game in pygame-ce."
+requires-python = ">=3.10"
+dependencies = ["pygame-ce>=2.5"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["game/logic"]

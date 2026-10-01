@@ -1,0 +1,89 @@
+name: Deploy web
+
+# A version tag (v1.0.0) builds the browser version with pygbag, publishes it
+# to GitHub Pages and pushes web.zip to itch.io's html5 channel.
+#
+# One-time setup:
+#   - Settings > Pages > Source: GitHub Actions
+#   - Secret BUTLER_API_KEY: itch.io API key (itch.io > Settings > API keys)
+#   - Variables ITCH_USER / ITCH_GAME: your itch.io username and game slug
+#     (the itch.io step is skipped until the secret exists)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt pygbag
+
+      - name: Test
+        run: pytest -q
+
+      - name: Build web version
+        run: python -m pygbag --build --archive .
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-zip
+          path: build/web.zip
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  itch:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+      ITCH_TARGET: ${{ vars.ITCH_USER }}/${{ vars.ITCH_GAME || 'orbit-hop' }}
+    steps:
+      - name: Skip notice
+        if: env.BUTLER_API_KEY == ''
+        run: echo "::notice::BUTLER_API_KEY not set - skipping itch.io upload"
+
+      - uses: actions/download-artifact@v4
+        if: env.BUTLER_API_KEY != ''
+        with:
+          name: web-zip
+
+      - name: Push to itch.io (html5 channel)
+        if: env.BUTLER_API_KEY != ''
+        run: |
+          curl -sSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip && chmod +x butler
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./butler push web.zip "$ITCH_TARGET:html5" --userversion "$VERSION"
